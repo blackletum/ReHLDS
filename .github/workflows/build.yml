@@ -30,12 +30,12 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
 # TODO: add support of 141_xp toolchain at VS2022+
 #      - name: Install v140, v141 and v142 toolsets
@@ -183,7 +183,7 @@ jobs:
         shell: "pwsh"
 
       - name: Deploy artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: win32
           path: publish/*
@@ -191,7 +191,10 @@ jobs:
   testdemos:
     name: 'Test demos'
     runs-on: ubuntu-24.04
-    container: rehldsorg/testdemos:latest
+    # The wine of rehldsorg/testdemos makes system calls the default seccomp filter of Docker refuses
+    container:
+      image: rehldsorg/testdemos:latest
+      options: --security-opt seccomp=unconfined
     needs: [windows]
     defaults:
       run:
@@ -210,7 +213,7 @@ jobs:
 
     steps:
       - name: Deploying windows artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: win32
 
@@ -234,9 +237,23 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          dpkg --add-architecture i386
-          apt-get update
-          apt-get install -y \
+          # Debian 11 reached end of LTS on 2026-08-31: the bullseye-security
+          # suite is frozen and its pool is being pruned from deb.debian.org.
+          # Keep the same toolchain, but fetch the base suite from the Debian
+          # archive and pin the security suite to its last complete snapshot.
+          # The security suite is fetched from the cloudflare snapshot mirror:
+          # plain snapshot.debian.org throttles CI bursts with connection
+          # resets, and https needs ca-certificates, which debian:11-slim
+          # does not ship, so bootstrap it from the archive first.
+          cat > /etc/apt/sources.list <<'EOF'
+          deb http://archive.debian.org/debian bullseye main
+          deb http://archive.debian.org/debian bullseye-updates main
+          EOF
+          apt-get -o Acquire::Check-Valid-Until=false update
+          apt-get install -y --no-install-recommends ca-certificates
+          echo 'deb https://snapshot-cloudflare.debian.org/archive/debian-security/20260831T000000Z bullseye-security main' > /etc/apt/sources.list.d/bullseye-security.list
+          apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=5 update
+          apt-get -o Acquire::Retries=5 install -y \
             gcc-multilib g++-multilib \
             build-essential \
             libc6-dev libc6-dev-i386 \
@@ -247,7 +264,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -364,7 +381,7 @@ jobs:
         shell: bash
 
       - name: Deploy artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         id: upload-job
         with:
           name: linux32
@@ -377,12 +394,12 @@ jobs:
 
     steps:
       - name: Deploying linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: linux32
 
       - name: Deploying windows artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: win32
 
@@ -452,7 +469,7 @@ jobs:
         shell: bash
 
       - name: Publish artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rehlds-ci-${{ env.APP_VERSION }}
           path: |
@@ -461,7 +478,7 @@ jobs:
             *.asc
 
       - name: Release artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         id: publish-job
         if: |
           startsWith(github.ref, 'refs/tags/') &&

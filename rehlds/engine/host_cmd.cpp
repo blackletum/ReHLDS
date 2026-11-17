@@ -27,6 +27,7 @@
 */
 
 #include "precompiled.h"
+#include "SteamApiCompat.h"
 
 typedef int(*SV_BLENDING_INTERFACE_FUNC)(int, struct sv_blending_interface_s **, struct server_studio_api_s *, float *, float *);
 
@@ -2473,6 +2474,10 @@ void Host_Version_f(void)
 	Con_Printf("ReHLDS version: " APP_VERSION "\n");
 	Con_Printf("Build date: " __BUILD_TIME__ " " __BUILD_DATE__ " (%i)\n", build_number());
 	Con_Printf("Build from: " APP_COMMIT_URL APP_COMMIT_SHA "\n");
+
+	char szSteamInfo[2560];
+	SteamApiCompat::Describe(szSteamInfo, sizeof(szSteamInfo), COM_CheckParm("-debug") != 0);
+	Con_Printf("%s", szSteamInfo);
 #else
 	Con_Printf("Exe build: " __BUILD_TIME__ " " __BUILD_DATE__ " (%i)\n", build_number());
 #endif
@@ -2586,13 +2591,36 @@ void Host_SetInfo_f(void)
 		Con_Printf("usage: setinfo [ <key> <value> ]\n");
 		return;
 	}
+
+	const char *key = Cmd_Argv(1);
+	const char *value = Cmd_Argv(2);
+
 	if (cmd_source == src_command)
 	{
-		Info_SetValueForKey(g_pcls.userinfo, Cmd_Argv(1), Cmd_Argv(2), MAX_INFO_STRING);
+		Info_SetValueForKey(g_pcls.userinfo, key, value, MAX_INFO_STRING);
 		Cmd_ForwardToServer();
 		return;
 	}
-	Info_SetValueForKey(host_client->userinfo, Cmd_Argv(1), Cmd_Argv(2), MAX_INFO_STRING);
+
+#ifdef REHLDS_FIXES
+	// client trying to set a * key
+	if (key[0] == '*')
+	{
+		// allow clients to set specific '*' prefixed userinfo keys for avatar IDs
+		if (!Q_strcmp(key + 1, "aid"))
+		{
+			Info_SetValueForStarKey(host_client->userinfo, key, value, MAX_INFO_STRING);
+			host_client->sendinfo = TRUE;
+			return;
+		}
+
+		// send response to the client instead of server console
+		SV_ClientPrintf("Can't set %s keys\n", key);
+		return;
+	}
+#endif
+
+	Info_SetValueForKey(host_client->userinfo, key, value, MAX_INFO_STRING);
 	host_client->sendinfo = TRUE;
 }
 
@@ -2697,7 +2725,7 @@ void Host_Say(qboolean teamonly)
 
 		host_client = client;
 
-		PF_MessageBegin_I(MSG_ONE, RegUserMsg("SayText", -1), NULL, &g_psv.edicts[j + 1]);
+		PF_MessageBegin_I(MSG_ONE, SV_RegUserMsg("SayText", -1), NULL, &g_psv.edicts[j + 1]);
 		PF_WriteByte_I(0);
 #ifdef REHLDS_FIXES
 		PF_WriteString_I(preparedText);
@@ -2778,7 +2806,7 @@ void Host_Tell_f(void)
 
 		host_client = client;
 
-		PF_MessageBegin_I(MSG_ONE, RegUserMsg("SayText", -1), NULL, &g_psv.edicts[j + 1]);
+		PF_MessageBegin_I(MSG_ONE, SV_RegUserMsg("SayText", -1), NULL, &g_psv.edicts[j + 1]);
 		PF_WriteByte_I(0);
 		PF_WriteString_I(text);
 		PF_MessageEnd_I();

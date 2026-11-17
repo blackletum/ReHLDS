@@ -193,6 +193,12 @@ void Sys_WriteProcessIdFile()
 	fclose(pidFile);
 }
 
+void Sys_PreloadSteamClient()
+{
+	// Windows only for now: see sys_window.cpp
+	;
+}
+
 bool CSys::GetExecutableName(char *out)
 {
 	Q_strcpy(out, g_szEXEName);
@@ -324,7 +330,7 @@ static void ConsoleCtrlHandler(int signal)
 
 bool Sys_SetupConsole()
 {
-	struct sigaction action;
+	struct sigaction action = {};
 	action.sa_handler = ConsoleCtrlHandler;
 	sigaction(SIGINT, &action, NULL);
 	sigaction(SIGTERM, &action, NULL);
